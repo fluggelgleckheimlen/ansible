@@ -1,0 +1,102 @@
+---
+- name: Update TSM VE
+  hosts: all
+  vars:
+    oldver: "8.1.22"
+    newver: "8.1.24"
+    nfspath: "10.20.30.40:/nfs"
+    veguiserver: "40.20.30.10"
+  tasks:
+    - name: Install dependencies
+      yum:
+        name:
+          - tar
+          - nfs-utils
+        state: present
+
+    - name: Mount NFS share
+      mount:
+        path: /mnt
+        src: "{{ nfspath }}"
+        fstype: nfs4
+        opts: ro
+        state: mounted
+
+    - name: Stop services
+      systemd:
+        name: "{{ item }}"
+        state: stopped
+      loop:
+        - dsmcad.service
+        - webserver.service
+      tags: update
+
+    - name: Remove old TSM VE
+      command: ./Uninstall_Tivoli_Data_Protection_for_VMware -i silent -uninstall
+      args:
+        removes: /opt/tivoli/tsm/tdpvmware/swidtag/ibm.com_IBM_Spectrum_Protect_Data_Protection_for_VMware-{{ oldver }}.swidtag
+        chdir: /opt/tivoli/tsm/tdpvmware/_uninst/TDPVMware/
+      register: uninstall_result
+      failed_when: uninstall_result.rc >= 2
+      tags: update
+
+    - name: Install TSM VE
+      command: /mnt/{{ newver }}/install-Linux.bin -i silent -DLICENSE_ACCEPTED=true
+      args:
+        creates: /opt/tivoli/tsm/tdpvmware/swidtag/ibm.com_IBM_Spectrum_Protect_Data_Protection_for_VMware-{{ newver }}.swidtag
+        chdir: /mnt/{{ newver }}/
+      register: install_result
+      failed_when: install_result.rc >= 2
+      when: not ansible_check_mode
+
+    - name: Stop and disable SysV services
+      service:
+        name: "{{ item }}"
+        state: stopped
+        enabled: no
+      loop:
+        - dsmcad
+        - webserver
+      tags: install
+      
+    - name: Start and enabled dsmcad
+      systemd:
+        name: dsmcad.service
+        # state: started
+        enabled: yes
+        daemon_reload: yes
+
+    - name: Set firewalld rules
+      firewalld:
+        rich_rule: rule family="ipv4" source address="{{ veguiserver }}/32" accept
+        state: enabled
+        permanent: yes
+
+    - name: Remove default firewalld rules
+      firewalld:
+        port: "{{ item }}"
+        state: disabled
+        permanent: yes
+      with_items:
+        - 9080/tcp
+        - 9081/tcp
+
+    - name: Unmount NFS share
+      mount:
+        path: /mnt
+        state: absent
+
+    - name: Apply dsm.opt
+      ansible.builtin.template:
+        src: templates/dsm.opt.j2
+        dest: /opt/tivoli/tsm/client/ba/bin/dsm.opt
+      tags: install
+
+    - name: Apply dsm.sys
+      ansible.builtin.template:
+        src: templates/dsm.sys.j2
+        dest: /opt/tivoli/tsm/client/ba/bin/dsm.sys
+      tags: install
+
+    - name: Reboot host
+      ansible.builtin.reboot:

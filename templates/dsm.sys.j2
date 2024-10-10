@@ -1,0 +1,51 @@
+SERVERName          {{ ansible_facts['hostname'] | upper }}
+NODEName            {{ ansible_facts['hostname'] | upper }}
+PASSWORDAccess      generate
+MANAGEDServices     schedule webclient
+TCPServeraddress    tsm.example.com
+TCPPort             1500
+HTTPPort            1581
+COMMMethod          tcpip
+ERRORLOGName        /var/log/dsmerror.log
+SCHEDLOGName        /var/log/dsmsched.log
+ERRORLOGRetention   30 D
+SCHEDLOGRetention   30 D
+QUERYSCHEDPERIOD    1
+RESOURCEUTILIZATION 10
+
+VMLIMITPERHost             2
+VMLIMITPERDatastore        2
+
+VMMAXBackupsession         4
+VMMAXParallel              4
+VMMAXVirtualdisks          8
+
+VMMAXRESTORESession        4
+VMMAXRESTOREPARALLELVMs    4
+VMMAXRESTOREPARALLELDisks  4
+
+VMCHOST                    vcenter.example.com
+VMCUSER                    VSPHERE.LOCAL\tsm
+VMPROCESSVMWITHPRDM        YES
+VMPROCESSVMWITHINDEPENDENT YES
+VMENABLETEMPLATEBACKUPS    YES
+VMVSTORTRANSPORT           nbd:hotadd
+VMTAGDATAMOVER             NO
+
+INCLUDE.VMSNAPSHOTATTEMPTS * 2 1
+
+testflag VMBACKUP_UPDATE_UUID
+testflag VMLASTBACKUPSTATUS:"NONE"
+
+VMVERIFYIFAction FORCEfull
+** VMNOCBTcontinue yes
+
+{% if ansible_fqdn in groups['remote'] %}
+*** Backup over WAN
+COMPRESSION YES
+DEDUPLICATION YES
+ENABLEDEDUPCache YES
+DEDUPCACHESize 2048
+
+TXNBytelimit 2g
+{% endif %}

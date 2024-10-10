@@ -1,0 +1,70 @@
+- name: Get redfish info
+  hosts: localhost
+  gather_facts: no
+  vars:
+    baseuri: "10.10.10.10"
+    username: "<user>"
+    password: "<password>"
+    host_ips:
+      - "10.10.10.11"
+      - "10.10.10.12"
+      - "10.10.10.13"
+      - "10.10.10.14"
+
+  tasks:
+    - name: Get default inventory information
+      community.general.redfish_info:
+        baseuri: "{{ baseuri }}"
+        username: "{{ username }}"
+        password: "{{ password }}"
+      register: result
+
+    - name: Print fetched information
+      ansible.builtin.debug:
+        msg: "{{ result.redfish_facts.system.entries.0.1.AssetTag }}"
+
+    - name: Get bios inventory and check for data availability
+      community.general.redfish_info:
+        category: Systems
+        command: GetBiosAttributes
+        baseuri: "{{ item }}"
+        username: "{{ username }}"
+        password: "{{ password }}"
+      register: bios
+      with_items:
+        - "{{ host_ips }}"
+      failed_when: bios.redfish_facts.bios_attribute.entries.0.1.QuietBoot == ''
+
+    - name: Print bios attributes
+      ansible.builtin.debug:
+        msg: "{{ item.redfish_facts.bios_attribute.entries }}"
+      loop: "{{ bios.results }}"
+
+    - name: Copy bios attributes to file
+      ansible.builtin.copy:
+        content: "{{ item.redfish_facts.bios_attribute.entries }}"
+        dest: "/tmp/{{ item.item }}.out"
+      loop: "{{ bios.results }}"
+      no_log: true
+
+   - name: Set bios attributes
+      community.general.redfish_config:
+        category: Systems
+        command: SetBiosAttributes
+        baseuri: "{{ item }}"
+        username: "{{ username }}"
+        password: "{{ password }}"
+        bios_attributes:
+          SvrMngmntFrb2Enable: 0
+          AttemptFastBoot: 0
+          AttemptFastBootCold: 0
+          promoteWarnings: 0
+          promoteMrcWarnings: 0
+          pprType: 1
+          HwMemTest: 1
+          MemTestLoops: 1
+          AdvMemTestOptions: 0
+          AdvMemTestCondition: 1
+      with_items:
+        - "{{ host_ips[0] }}"
+      tags: never # never run
